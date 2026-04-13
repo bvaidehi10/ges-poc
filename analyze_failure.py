@@ -2,7 +2,6 @@ import os
 import json
 import sys
 from google.genai import Client, types
-from google.cloud import devtools_build_v1 as build_v1
 
 FAILED_STATUSES = {3, 4, 5, 6, 7}  # FAILURE, INTERNAL_ERROR, TIMEOUT, CANCELLED, EXPIRED
 

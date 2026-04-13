@@ -49,7 +49,7 @@ steps:
       - |
         set -e
         echo "📥 Installing AI Analysis dependencies..."
-        pip install --quiet --no-cache-dir google-genai google-cloud-build
+        pip install --quiet --no-cache-dir google-genai
         echo "🚀 Running AI Failure Analysis..."
         python analyze_failure.py
     env:
