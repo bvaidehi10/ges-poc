@@ -33,7 +33,7 @@ def get_repo_context():
         if os.path.exists(f_name):
             with open(f_name, "r", encoding="utf-8", errors="replace") as f:
                 context += f"\n--- {f_name} ---\n{f.read()}\n"
-    return context
+    return context[:15000]  # keep prompts smaller and faster
 
 def generate_docs():
     client = get_client()
@@ -44,14 +44,30 @@ def generate_docs():
 
     sections = {
         "index.md": "Write an elaborate technical overview for the GES-POC project.",
-        "architecture.md": "Generate a technical architecture guide with a Mermaid diagram.",
+        "architecture.md": """
+Write a technical architecture guide for the GES-POC project.
+
+Requirements:
+- Output Markdown only
+- Include these sections:
+  1. Overview
+  2. Components
+  3. Data Flow
+  4. Architecture Diagram
+- Under the section titled exactly 'Architecture Diagram', include exactly one valid Mermaid flowchart inside a fenced code block starting with ```mermaid
+- The diagram should reflect the repository context and, if supported by the context, include:
+  User, Streamlit App, Google Cloud Storage, Speech-to-Text, DLP, BigQuery, Looker Studio, Cloud Run
+- After the Mermaid diagram, add a brief explanation of the flow
+- Do not output pseudo-code
+- Do not describe the diagram instead of writing it
+""".strip(),
         "deployment.md": "Write a deployment guide based on the repository context and cloudbuild.yaml.",
         "history.md": f"Summarize this git history into a Markdown table:\n{history}",
         "troubleshooting.md": "Write a troubleshooting guide for likely build, deploy, and runtime issues."
     }
 
     for filename, task in sections.items():
-        print(f"✍️ AI is writing {filename}...")
+        print(f"✍️ AI is writing {filename}...", flush=True)
         try:
             response = client.models.generate_content(
                 model=MODEL_NAME,
@@ -64,7 +80,7 @@ Repository context:
 Task:
 {task}
 
-Requirements:
+General requirements:
 - Output Markdown only
 - Be concrete and technical
 - Do not invent services or files not present in the context
@@ -76,10 +92,10 @@ Requirements:
             with open(os.path.join("docs", filename), "w", encoding="utf-8") as f:
                 f.write(text)
 
-            print(f"✅ Successfully created {filename}")
+            print(f"✅ Successfully created {filename}", flush=True)
 
         except Exception as e:
-            print(f"⚠️ Error generating {filename}: {e}")
+            print(f"⚠️ Error generating {filename}: {e}", flush=True)
             with open(os.path.join("docs", filename), "w", encoding="utf-8") as f:
                 f.write(f"# {filename}\nAuto-generation failed: {e}\n")
 
