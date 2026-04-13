@@ -44,7 +44,7 @@ def generate_docs():
 
     sections = {
         "index.md": "Write an elaborate technical overview for the GES-POC project.",
-        "architecture.md": """
+       "architecture.md": """
 Write a technical architecture guide for the GES-POC project.
 
 Requirements:
@@ -54,12 +54,13 @@ Requirements:
   2. Components
   3. Data Flow
   4. Architecture Diagram
-- Under the section titled exactly 'Architecture Diagram', include exactly one valid Mermaid flowchart inside a fenced code block starting with ```mermaid
-- The diagram should reflect the repository context and, if supported by the context, include:
-  User, Streamlit App, Google Cloud Storage, Speech-to-Text, DLP, BigQuery, Looker Studio, Cloud Run
-- After the Mermaid diagram, add a brief explanation of the flow
-- Do not output pseudo-code
-- Do not describe the diagram instead of writing it
+- Under the section titled exactly 'Architecture Diagram', output exactly one Mermaid diagram
+- The Mermaid diagram must be inside a fenced code block starting with ```mermaid and ending with ```
+- Do not place Mermaid syntax as plain text
+- Do not explain the diagram before the Mermaid code block
+- After the Mermaid code block, add a short explanation
+- Use a flowchart showing these components if supported by the repository context:
+  User, Streamlit App, Google Cloud Run, Google Cloud Storage, Speech-to-Text API, DLP API, BigQuery, Looker Studio
 """.strip(),
         "deployment.md": "Write a deployment guide based on the repository context and cloudbuild.yaml.",
         "history.md": f"Summarize this git history into a Markdown table:\n{history}",
