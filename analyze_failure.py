@@ -1,98 +1,115 @@
 import os
 import json
 import sys
-from google.genai import Client, types
+from pathlib import Path
 
-FAILED_STATUSES = {3, 4, 5, 6, 7}  # FAILURE, INTERNAL_ERROR, TIMEOUT, CANCELLED, EXPIRED
+from google import genai
+from google.genai.types import HttpOptions
+
+WORKSPACE = Path("/workspace")
+MAX_CHARS = 8000
 
 
-def get_build_summary(project_id, build_id):
-    """Fetches current build summary once, without polling."""
-    client = build_v1.CloudBuildClient()
-    build = client.get_build(project_id=project_id, id=build_id)
+def read_file(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8", errors="replace")
 
-    log_context = [f"Build Status: {build.status.name if hasattr(build.status, 'name') else build.status}"]
 
-    if getattr(build, "failure_info", None) and getattr(build.failure_info, "detail", None):
-        log_context.append(f"Failure Detail: {build.failure_info.detail}")
+def tail_text(text: str, max_chars: int = MAX_CHARS) -> str:
+    text = text.strip()
+    if len(text) <= max_chars:
+        return text
+    return text[-max_chars:]
 
-    failed_found = False
-    for step in build.steps:
-        step_status = step.status
-        step_name = step.id or "unnamed-step"
 
-        log_context.append(
-            f"Step {step_name}: {step_status.name if hasattr(step_status, 'name') else step_status}"
+def main() -> int:
+    print("🔍 AI Analyzer started...")
+
+    failed_stage = read_file(WORKSPACE / "failed_stage").strip()
+    build_log = tail_text(read_file(WORKSPACE / "build.log"))
+    push_log = tail_text(read_file(WORKSPACE / "push.log"))
+    deploy_log = tail_text(read_file(WORKSPACE / "deploy.log"))
+
+    if not failed_stage:
+        print(json.dumps({
+            "summary": "No failure detected",
+            "root_cause": "No failed_stage file found in /workspace",
+            "issue_category": "unknown",
+            "confidence": "low",
+            "recommended_fix": "Check the earlier Cloud Build steps that should write /workspace/failed_stage"
+        }, indent=2))
+        return 0
+
+    print(f"❌ Detected failure in stage: {failed_stage}")
+    print("📄 Sending logs to Gemini...")
+
+    log_bundle_parts = [f"FAILED_STAGE: {failed_stage}"]
+    if build_log:
+        log_bundle_parts.append(f"=== BUILD LOG ===\n{build_log}")
+    if push_log:
+        log_bundle_parts.append(f"=== PUSH LOG ===\n{push_log}")
+    if deploy_log:
+        log_bundle_parts.append(f"=== DEPLOY LOG ===\n{deploy_log}")
+
+    log_bundle = "\n\n".join(log_bundle_parts)
+
+    try:
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
+        if not project_id:
+            raise ValueError("GOOGLE_CLOUD_PROJECT or PROJECT_ID is required")
+
+        client = genai.Client(
+            vertexai=True,
+            project=project_id,
+            location=os.getenv("GOOGLE_CLOUD_LOCATION", "global"),
+            http_options=HttpOptions(api_version="v1"),
         )
 
-        if int(step_status) in FAILED_STATUSES:
-            failed_found = True
+        prompt = f"""
+You are a senior Google Cloud DevOps engineer.
 
-    return "\n".join(log_context), failed_found
+Analyze the following Cloud Build failure logs.
 
-
-def analyze_with_gemini(project_id, log_text):
-    """Analyzes logs using Gemini and returns JSON text."""
-    ai_client = Client(vertexai=True, project=project_id, location="us-central1")
-
-    prompt = f"""
-Analyze the following Google Cloud Build failure summary.
-
-Return ONLY JSON with this exact structure:
+Return ONLY valid JSON with this exact structure:
 {{
-  "summary": "Short description of the error",
-  "root_cause": "The technical reason for failure",
-  "issue_category": "One of: dependency, iam_permission, code_error, infrastructure, timeout, docker, deployment, unknown",
+  "summary": "Short description of the failure",
+  "root_cause": "Most likely technical cause based only on log evidence",
+  "issue_category": "One of: dependency, docker, iam_permission, code_error, infrastructure, timeout, config, deployment, unknown",
   "confidence": "high/medium/low",
-  "recommended_fix": "Clear instruction to fix the issue"
+  "recommended_fix": "Clear step-by-step fix"
 }}
 
 Rules:
-- Be concise
-- Do not invent facts
-- Base the answer only on the provided summary
+- Use only the evidence in the logs.
+- Do not invent missing facts.
+- If later stages were skipped, focus on the real failed stage.
 
-SUMMARY:
-{log_text}
+LOGS:
+{log_bundle}
 """.strip()
 
-    response = ai_client.models.generate_content(
-        model='gemini-2.0-flash',
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type='application/json'
+        response = client.models.generate_content(
+            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            contents=prompt,
         )
-    )
 
-    return response.text
+        print("🤖 AI RESULT:")
+        print(response.text)
+
+    except Exception as e:
+        print(json.dumps({
+            "summary": "AI analysis step failed",
+            "root_cause": str(e),
+            "issue_category": "unknown",
+            "confidence": "low",
+            "recommended_fix": "Check Vertex AI auth, environment variables, and model access"
+        }, indent=2))
+        return 1
+
+    # Keep overall build failed after analysis
+    return 1
 
 
 if __name__ == "__main__":
-    project_id = os.getenv("PROJECT_ID")
-    build_id = os.getenv("BUILD_ID")
-
-    if not project_id or not build_id:
-        print(json.dumps({"error": "PROJECT_ID and BUILD_ID are required"}))
-        sys.exit(1)
-
-    try:
-        summary, failed_found = get_build_summary(project_id, build_id)
-
-        if not failed_found:
-            print(json.dumps({
-                "summary": "No failed step detected",
-                "root_cause": "Build may still be running or succeeded",
-                "issue_category": "unknown",
-                "confidence": "low",
-                "recommended_fix": "Check build ordering and allowFailure settings"
-            }))
-            sys.exit(0)
-
-        result = analyze_with_gemini(project_id, summary)
-        print("\n--- AI ANALYSIS RESULT ---")
-        print(result)
-        print("--------------------------")
-
-    except Exception as e:
-        print(json.dumps({"error": str(e)}))
-        sys.exit(1)
+    sys.exit(main())
