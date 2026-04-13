@@ -37,25 +37,20 @@ def get_repo_context():
 
 def generate_docs():
     client = get_client()
-    context = get_repo_context()
+    context = get_repo_context()[:12000]  # trim large repo context
     history = get_git_history()
 
     os.makedirs("docs", exist_ok=True)
 
+    # test only one file first
     sections = {
-        "index.md": "Write an elaborate technical overview for the GES-POC project.",
-        "architecture.md": "Generate a technical architecture guide with a Mermaid diagram.",
-        "deployment.md": "Write a deployment guide based on the repository context and cloudbuild.yaml.",
-        "history.md": f"Summarize this git history into a Markdown table:\n{history}",
-        "troubleshooting.md": "Write a troubleshooting guide for likely build, deploy, and runtime issues."
+        "index.md": "Write an elaborate technical overview for the GES-POC project."
     }
 
     for filename, task in sections.items():
-        print(f"✍️ AI is writing {filename}...")
+        print(f"✍️ AI is writing {filename}...", flush=True)
         try:
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=f"""
+            prompt = f"""
 You are writing polished technical Markdown documentation for a software project.
 
 Repository context:
@@ -70,18 +65,26 @@ Requirements:
 - Do not invent services or files not present in the context
 - Use headings and concise sections
 """.strip()
+
+            print("📤 Sending request to model...", flush=True)
+
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
             )
+
+            print("📥 Response received from model", flush=True)
 
             text = response.text or f"# {filename}\nNo content generated."
             with open(os.path.join("docs", filename), "w", encoding="utf-8") as f:
                 f.write(text)
 
-            print(f"✅ Successfully created {filename}")
+            print(f"✅ Successfully created {filename}", flush=True)
 
         except Exception as e:
-            print(f"⚠️ Error generating {filename}: {e}")
+            print(f"⚠️ Error generating {filename}: {e}", flush=True)
             with open(os.path.join("docs", filename), "w", encoding="utf-8") as f:
                 f.write(f"# {filename}\nAuto-generation failed: {e}\n")
-
+                
 if __name__ == "__main__":
     generate_docs()
