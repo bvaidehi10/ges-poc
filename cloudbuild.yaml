@@ -60,7 +60,6 @@ steps:
           --platform managed \
           --port 8501 \
           --allow-unauthenticated \
-          --service-account fake-sa@${PROJECT_ID}.iam.gserviceaccount.com \
           2>&1 | tee /workspace/deploy.log
         status=${PIPESTATUS[0]}
         echo "${status}" > /workspace/deploy.exit
