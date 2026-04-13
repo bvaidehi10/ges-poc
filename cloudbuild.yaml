@@ -1,61 +1,88 @@
 steps:
-  # Step 1: Build Image
+  # Step 1: Build image and capture real logs
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build Image'
+    entrypoint: 'bash'
     args:
-      [
-        'build',
-        '-t',
-        '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/${_IMAGE_NAME}:${COMMIT_SHA}',
-        '.'
-      ]
+      - '-c'
+      - |
+        set +e
+        docker build \
+          -t "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/${_IMAGE_NAME}:${COMMIT_SHA}" \
+          . 2>&1 | tee /workspace/build.log
+        status=${PIPESTATUS[0]}
+        echo "${status}" > /workspace/build.exit
+        if [ "${status}" -ne 0 ]; then
+          echo "build" > /workspace/failed_stage
+        fi
+        exit 0
 
-  # Step 2: Push
+  # Step 2: Push only if build succeeded
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push to Registry'
+    entrypoint: 'bash'
     args:
-      [
-        'push',
-        '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/${_IMAGE_NAME}:${COMMIT_SHA}'
-      ]
+      - '-c'
+      - |
+        if [ -f /workspace/failed_stage ]; then
+          echo "Skipped push because build failed" | tee /workspace/push.log
+          echo "0" > /workspace/push.exit
+          exit 0
+        fi
 
-  # Step 3: Deploy
+        set +e
+        docker push "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/${_IMAGE_NAME}:${COMMIT_SHA}" \
+          2>&1 | tee /workspace/push.log
+        status=${PIPESTATUS[0]}
+        echo "${status}" > /workspace/push.exit
+        if [ "${status}" -ne 0 ]; then
+          echo "push" > /workspace/failed_stage
+        fi
+        exit 0
+
+  # Step 3: Deploy only if earlier steps succeeded
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy to Cloud Run'
-    entrypoint: gcloud
+    entrypoint: 'bash'
     args:
-      [
-        'run',
-        'deploy',
-        '${_SERVICE_NAME}',
-        '--image',
-        '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/${_IMAGE_NAME}:${COMMIT_SHA}',
-        '--region',
-        '${_REGION}',
-        '--platform',
-        'managed',
-        '--port',
-        '8501',
-        '--allow-unauthenticated'
-      ]
+      - '-c'
+      - |
+        if [ -f /workspace/failed_stage ]; then
+          echo "Skipped deploy because an earlier stage failed" | tee /workspace/deploy.log
+          echo "0" > /workspace/deploy.exit
+          exit 0
+        fi
 
-  # Step 4: AI ERROR ANALYST
+        set +e
+        gcloud run deploy "${_SERVICE_NAME}" \
+          --image "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/${_IMAGE_NAME}:${COMMIT_SHA}" \
+          --region "${_REGION}" \
+          --platform managed \
+          --port 8501 \
+          --allow-unauthenticated \
+          2>&1 | tee /workspace/deploy.log
+        status=${PIPESTATUS[0]}
+        echo "${status}" > /workspace/deploy.exit
+        if [ "${status}" -ne 0 ]; then
+          echo "deploy" > /workspace/failed_stage
+        fi
+        exit 0
+
+  # Step 4: AI analysis
   - name: 'python:3.11-slim'
-    id: 'analyze-failure'
-    waitFor: ['-'] 
+    id: 'Analyze Failure'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
         set -e
-        echo "📥 Installing AI Analysis dependencies..."
-        pip install --quiet --no-cache-dir google-genai
-        echo "🚀 Running AI Failure Analysis..."
+        python -m pip install --no-cache-dir --upgrade pip
+        python -m pip install --no-cache-dir google-genai
         python analyze_failure.py
     env:
-      - 'PROJECT_ID=${PROJECT_ID}'
-      - 'BUILD_ID=${BUILD_ID}'
-    allowFailure: true
+      - 'GOOGLE_CLOUD_PROJECT=${PROJECT_ID}'
+      - 'GOOGLE_CLOUD_LOCATION=global'
+      - 'GEMINI_MODEL=gemini-2.5-flash'
 
 substitutions:
   _REGION: us-central1
