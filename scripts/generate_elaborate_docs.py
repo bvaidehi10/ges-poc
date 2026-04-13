@@ -4,26 +4,33 @@ from google import genai
 
 def get_client():
     api_key = os.getenv("GEMINI_API_KEY")
-    project_id = os.getenv("PROJECT_ID")
-    
     if api_key:
         print("🚀 Using Google AI Studio API Key...")
-        # For AI Studio, we do NOT set vertexai=True
         return genai.Client(api_key=api_key)
     else:
         print("🛡️ Using Vertex AI Service Account...")
-        return genai.Client(
-            vertexai=True, 
-            project=project_id, 
-            location="us-central1"
-        )
+        return genai.Client(vertexai=True, project=os.getenv("PROJECT_ID"), location="us-central1")
+
+def find_model(client):
+    """Lists models and finds the correct ID for Gemini 1.5 Flash."""
+    try:
+        print("🔍 Querying available models...")
+        for model in client.models.list():
+            # Look for the flash model in the list
+            if "gemini-1.5-flash" in model.name:
+                print(f"✅ Found model: {model.name}")
+                return model.name
+    except Exception as e:
+        print(f"⚠️ Could not list models: {e}")
+    
+    # Fallback to the most standard string if listing fails
+    return 'gemini-1.5-flash'
 
 def generate_docs():
     client = get_client()
     
-    # FIX: The SDK handles the 'models/' prefix automatically for AI Studio.
-    # Using 'gemini-1.5-flash' is the most compatible string for the v1 stable API.
-    model_id = 'gemini-1.5-flash'
+    # SELF-HEALING: Dynamically find the model name
+    model_id = find_model(client)
     
     os.makedirs('docs', exist_ok=True)
     sections = {
@@ -37,20 +44,21 @@ def generate_docs():
     for filename, task in sections.items():
         print(f"✍️ AI is writing {filename}...")
         try:
-            # We call the model directly
             response = client.models.generate_content(
                 model=model_id,
                 contents=task
             )
-            content = response.text
-            if not content:
-                content = f"# {filename}\nAI returned an empty response."
+            if response.text:
+                with open(os.path.join('docs', filename), 'w') as f:
+                    f.write(response.text)
+                print(f"✅ Successfully created {filename}")
+            else:
+                print(f"⚠️ AI returned empty text for {filename}")
         except Exception as e:
             print(f"⚠️ Error generating {filename}: {e}")
-            content = f"# {filename}\nGeneration failed: {e}"
-
-        with open(os.path.join('docs', filename), 'w') as f:
-            f.write(content)
+            # Ensure file exists to prevent MkDocs 404
+            with open(os.path.join('docs', filename), 'w') as f:
+                f.write(f"# {filename}\nAuto-generation failed: {e}")
 
 if __name__ == "__main__":
     generate_docs()
