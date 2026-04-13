@@ -6,19 +6,22 @@ MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 def get_client():
-    api_key = os.getenv("GEMINI_API_KEY")
     project_id = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if project_id:
+        print("🛡️ Using Vertex AI Service Account...")
+        return genai.Client(
+            vertexai=True,
+            project=project_id,
+            location="global",
+        )
 
     if api_key:
         print("🚀 Using Google AI Studio API Key...")
         return genai.Client(api_key=api_key)
 
-    print("🛡️ Using Vertex AI Service Account...")
-    return genai.Client(
-        vertexai=True,
-        project=project_id,
-        location="global",
-    )
+    raise ValueError("No Vertex AI project or GEMINI_API_KEY configured")
 
 
 def get_git_history():
@@ -230,10 +233,12 @@ Requirements:
 
         except Exception as e:
             print(f"⚠️ Error generating {filename}: {e}", flush=True)
-            write_file(
-                os.path.join("docs", filename),
-                f"# {filename}\nAuto-generation failed: {e}\n"
-            )
+            print(f"⏭️ Keeping existing docs/{filename} if present", flush=True)
+            if not os.path.exists(os.path.join("docs", filename)):
+                write_file(
+                    os.path.join("docs", filename),
+                    f"# {filename}\nAuto-generation failed: {e}\n"
+                )
 
 
 if __name__ == "__main__":
