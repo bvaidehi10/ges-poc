@@ -26,5 +26,5 @@ ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 
 EXPOSE 8501
 
-# Entrypoint for Streamlit
-ENTRYPOINT ["streamlit", "run", "app.py"]
+# Change this from ENTRYPOINT to CMD
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
