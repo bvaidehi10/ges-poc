@@ -6,22 +6,17 @@ MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 def get_client():
+    """Initializes the Vertex AI client using ADC / service account."""
     project_id = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
-    api_key = os.getenv("GEMINI_API_KEY")
+    if not project_id:
+        raise ValueError("❌ PROJECT_ID or GOOGLE_CLOUD_PROJECT environment variable is missing!")
 
-    if project_id:
-        print("🛡️ Using Vertex AI Service Account...")
-        return genai.Client(
-            vertexai=True,
-            project=project_id,
-            location="global",
-        )
-
-    if api_key:
-        print("🚀 Using Google AI Studio API Key...")
-        return genai.Client(api_key=api_key)
-
-    raise ValueError("No Vertex AI project or GEMINI_API_KEY configured")
+    print(f"🛡️ Initializing Vertex AI for Project: {project_id}")
+    return genai.Client(
+        vertexai=True,
+        project=project_id,
+        location="global",
+    )
 
 
 def get_git_history():
@@ -47,7 +42,8 @@ def write_file(path: str, content: str):
         f.write(content)
 
 
-def generate_markdown(client, task: str, context: str) -> str:
+def generate_markdown(client, task, context):
+    """Sends the request to Vertex AI."""
     response = client.models.generate_content(
         model=MODEL_NAME,
         contents=f"""
@@ -68,13 +64,12 @@ Global writing rules:
 - Be specific to the repository context
 - Do not invent services, modules, files, or deployment steps not supported by the context
 - Prefer precise implementation details over generic statements
-- Use clean headings, short paragraphs, and bullet points only when necessary
+- Use clean headings and short paragraphs
 - Where diagrams are requested, output valid Mermaid fenced code blocks only
 - Never output Mermaid syntax as plain paragraph text
 - Do not wrap the whole response in triple backticks
 """.strip()
     )
-
     return response.text or ""
 
 
@@ -100,12 +95,6 @@ Required sections:
 5. Technology Stack
 6. Project Structure Overview
 7. Operational Flow Summary
-
-Content expectations:
-- Explain the purpose of the project in enterprise documentation style
-- Describe how audio is uploaded, processed, masked, stored, and reported
-- Mention only components supported by the repository context
-- Keep this page suitable as the main landing page of an MkDocs site
 """.strip(),
 
         "architecture.md": """
@@ -130,15 +119,8 @@ Diagram requirements:
 - Mermaid blocks must start with ```mermaid
 - Use valid Mermaid syntax only
 - Do not place diagram syntax outside fenced blocks
-
-Diagram component guidance:
-Use repository-supported components such as:
-User, Streamlit App, Cloud Run, Google Cloud Storage, Speech-to-Text, DLP, BigQuery, Looker Studio
-
-Important:
-- The diagrams must render in MkDocs with Mermaid support
-- Use node syntax like A[Label]
 - Use flowchart TD for flowcharts
+- Use node syntax like A[Label]
 """.strip(),
 
         "deployment.md": """
@@ -157,11 +139,6 @@ Required sections:
 7. BigQuery and Reporting Integration
 8. Validation and Smoke Checks
 9. Operational Notes
-
-Content expectations:
-- Use the repository context to describe containerization and deployment
-- Reference Cloud Build and Dockerfile behavior if present in the context
-- Keep the instructions structured and implementation-focused
 """.strip(),
 
         "troubleshooting.md": """
@@ -178,16 +155,6 @@ Required sections:
 5. Cloud Run Runtime Issues
 6. BigQuery and Reporting Issues
 7. Recommended Debugging Workflow
-
-For each issue area:
-- Describe symptoms
-- Describe likely causes
-- Describe resolution steps
-
-Content expectations:
-- Keep it specific to this project type
-- Use practical issue/cause/resolution language
-- Avoid generic filler
 """.strip(),
 
         "history.md": f"""
@@ -205,20 +172,15 @@ Requirements:
 - Use Markdown tables where useful
 - Base the content on this git history:
 {history}
-- If history is limited, say that the available history is limited
-- Keep the wording formal and release-note oriented
 """.strip(),
     }
 
     for filename, task in sections.items():
-        print(f"✍️ AI is writing {filename}...", flush=True)
+        print(f"✍️ AI is writing {filename} via Vertex AI...", flush=True)
         try:
-            # Slightly narrower context per page for better output quality
             if filename == "history.md":
                 page_context = "Repository git history and current project context.\n" + context[:6000]
-            elif filename == "architecture.md":
-                page_context = context
-            elif filename == "deployment.md":
+            elif filename in ("architecture.md", "deployment.md"):
                 page_context = context
             else:
                 page_context = context[:12000]
@@ -232,12 +194,18 @@ Requirements:
             print(f"✅ Successfully created {filename}", flush=True)
 
         except Exception as e:
-            print(f"⚠️ Error generating {filename}: {e}", flush=True)
+            error_str = str(e)
+            print(f"⚠️ Error generating {filename}: {error_str}", flush=True)
+
+            if "RESOURCE_EXHAUSTED" in error_str or "429" in error_str:
+                print("🚫 Quota exhausted. Stopping further AI doc generation.", flush=True)
+                break
+
             print(f"⏭️ Keeping existing docs/{filename} if present", flush=True)
             if not os.path.exists(os.path.join("docs", filename)):
                 write_file(
                     os.path.join("docs", filename),
-                    f"# {filename}\nAuto-generation failed: {e}\n"
+                    f"# {filename}\nAuto-generation failed: {error_str}\n"
                 )
 
 
