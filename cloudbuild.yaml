@@ -86,7 +86,7 @@ steps:
 
 substitutions:
   _REGION: us-central1
-  _AR_REPO_NAME: ges-poc
+  _AR_REPO_NAME: ges-pocs
   _IMAGE_NAME: ges-poc
   _SERVICE_NAME: ges-poc-service
 
