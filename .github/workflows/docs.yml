@@ -1,0 +1,36 @@
+name: AI Documentation Engine
+on:
+  push:
+    branches: [ main, feature/ai-docs ] # Runs on both branches for testing
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Necessary to get Git history for the AI
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements-docs.txt
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Run AI Doc Generator
+        run: python scripts/generate_elaborate_docs.py
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Deploy to GitHub Pages
+        run: mkdocs gh-deploy --force

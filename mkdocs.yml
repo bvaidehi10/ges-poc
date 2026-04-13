@@ -1,0 +1,22 @@
+site_name: GES-POC Enterprise AI Search
+theme:
+  name: material
+  palette:
+    primary: indigo
+  features:
+    - navigation.tabs
+    - content.code.copy
+
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.mermaid_format
+
+nav:
+  - Overview: index.md
+  - Architecture: architecture.md
+  - Deployment: deployment.md
+  - Version History: history.md
+  - Troubleshooting: troubleshooting.md
