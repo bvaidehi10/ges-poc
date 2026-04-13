@@ -3,7 +3,6 @@ on:
   push:
     branches: [ feature/ai-docs ]
 
-# Permissions required for the "GitHub Actions" deployment method
 permissions:
   contents: read
   pages: write
@@ -25,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: pip install mkdocs-material pymdown-extensions google-genai
 
-      - name: Run AI Doc Generator
+      - name: Generate AI Docs
         run: |
           mkdir -p docs
           python scripts/generate_elaborate_docs.py
@@ -33,13 +32,23 @@ jobs:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-      - name: Build MkDocs Site
+      - name: Verify Docs Existence
+        run: |
+          echo "Checking generated Markdown files..."
+          ls -R docs/
+
+      - name: Build Site
         run: mkdocs build
+
+      - name: Verify HTML Existence
+        run: |
+          echo "Checking generated HTML files..."
+          ls -R site/
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site # MkDocs builds the HTML into the 'site' folder
+          path: site/ # This folder must contain index.html
 
   deploy:
     needs: build

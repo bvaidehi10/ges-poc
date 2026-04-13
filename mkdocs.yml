@@ -1,4 +1,5 @@
 site_name: GES-POC Enterprise AI
+site_url: https://bvaidehi10.github.io/ges-poc/
 theme:
   name: material
   palette:
