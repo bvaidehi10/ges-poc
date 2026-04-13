@@ -1,18 +1,16 @@
 import os
 import subprocess
+import json
 from google.genai import Client, types
 
 def get_git_history():
-    """Fetches the last 5 commit messages to create a version history."""
     try:
-        # Gets hash, date, and subject of last 5 commits
         cmd = ["git", "log", "-n", "5", "--pretty=format:%h - %ad: %s", "--date=short"]
         return subprocess.check_output(cmd).decode("utf-8")
     except:
-        return "No git history found."
+        return "Initial release."
 
 def get_repo_context():
-    """Reads core files to give Gemini context about the project."""
     files = ['app.py', 'cloudbuild.yaml', 'Dockerfile', 'requirements.txt']
     context = ""
     for f_name in files:
@@ -23,6 +21,10 @@ def get_repo_context():
 
 def generate_docs():
     PROJECT_ID = os.getenv("PROJECT_ID")
+    if not PROJECT_ID:
+        print("ERROR: PROJECT_ID is missing")
+        return
+
     client = Client(vertexai=True, project=PROJECT_ID, location="us-central1")
     
     context = get_repo_context()
@@ -30,31 +32,28 @@ def generate_docs():
     
     os.makedirs('docs', exist_ok=True)
     
-    # Sections to generate
     sections = {
-        "index.md": "Overview of the GES-POC project and RAG business value.",
-        "architecture.md": "Technical architecture with a Mermaid.js diagram showing Cloud Build -> Cloud Run -> Vertex AI.",
-        "deployment.md": "Elaborate deployment guide based on the cloudbuild.yaml file.",
-        "troubleshooting.md": "Common errors and how the AI failure analysis helps debug them.",
-        "history.md": f"Professional Version History based on these raw commits: {history}"
+        "index.md": "Overview of the GES-POC project.",
+        "architecture.md": "Architecture with Mermaid.js diagram.",
+        "deployment.md": "Deployment guide.",
+        "troubleshooting.md": "Troubleshooting guide.",
+        "history.md": f"Version History table for: {history}"
     }
 
     for filename, prompt_task in sections.items():
-        print(f"✍️ AI is writing {filename}...")
-        
-        full_prompt = f"""
-        Context: {context}
-        Task: {prompt_task}
-        Requirement: Use professional technical Markdown. For 'history.md', create a clean table with columns 'Version/Hash', 'Date', and 'Change Summary'.
-        """
-
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=full_prompt
-        )
-        
-        with open(f"docs/{filename}", "w") as f:
-            f.write(response.text)
+        print(f"✍️ Writing {filename}...")
+        try:
+            # Using the versioned stable model ID
+            response = client.models.generate_content(
+                model='gemini-1.5-flash-002',
+                contents=f"Context: {context}\nTask: {prompt_task}\nFormat: Elaborate technical Markdown."
+            )
+            with open(f"docs/{filename}", "w") as f:
+                f.write(response.text)
+        except Exception as e:
+            print(f"⚠️ Failed to generate {filename}: {str(e)}")
+            with open(f"docs/{filename}", "w") as f:
+                f.write(f"# {filename}\nAuto-generation failed for this section.")
 
 if __name__ == "__main__":
     generate_docs()
