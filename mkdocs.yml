@@ -1,5 +1,7 @@
-site_name: GES-POC Enterprise AI
+site_name: GES-POC Enterprise AI Search
 site_url: https://bvaidehi10.github.io/ges-poc/
+use_directory_urls: false  # This makes links more reliable for GitHub Pages
+
 theme:
   name: material
   palette:

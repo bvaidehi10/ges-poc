@@ -32,23 +32,17 @@ jobs:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-      - name: Verify Docs Existence
-        run: |
-          echo "Checking generated Markdown files..."
-          ls -R docs/
-
-      - name: Build Site
+      - name: Build MkDocs Site
         run: mkdocs build
 
-      - name: Verify HTML Existence
-        run: |
-          echo "Checking generated HTML files..."
-          ls -R site/
+      # CRITICAL FIX: Prevent GitHub from using Jekyll
+      - name: Disable Jekyll
+        run: touch site/.nojekyll
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site/ # This folder must contain index.html
+          path: site/
 
   deploy:
     needs: build
