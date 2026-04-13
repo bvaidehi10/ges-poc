@@ -6,3 +6,4 @@ requests>=2.32.0
 urllib3>=2.2.0
 google-cloud-build>=3.22.0
 google-cloud-aiplatform>=1.70.0  # Required for Gemini 2.0
+this-package-does-not-exist-xyz123
