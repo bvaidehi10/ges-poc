@@ -1,18 +1,21 @@
 name: AI Documentation Engine
 on:
   push:
-    branches: [ main, feature/ai-docs ] # Runs on both branches for testing
+    branches: [ feature/ai-docs ]
 
+# Permissions required for the "GitHub Actions" deployment method
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Necessary to get Git history for the AI
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -20,18 +23,31 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements-docs.txt
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+        run: pip install mkdocs-material pymdown-extensions google-genai
 
       - name: Run AI Doc Generator
-        run: python scripts/generate_elaborate_docs.py
+        run: |
+          mkdir -p docs
+          python scripts/generate_elaborate_docs.py
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} 
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
+      - name: Build MkDocs Site
+        run: mkdocs build
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site # MkDocs builds the HTML into the 'site' folder
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
-        run: mkdocs gh-deploy --force
+        id: deployment
+        uses: actions/deploy-pages@v4

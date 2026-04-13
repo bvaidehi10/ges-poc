@@ -1,49 +1,29 @@
-site_name: GES-POC Enterprise AI Search
-site_description: AI-Powered Search POC Documentation
-site_url: https://bvaidehi10.github.io/ges-poc/
-
+site_name: GES-POC Enterprise AI
 theme:
   name: material
-  language: en
-  # 1. LIGHT/DARK THEME TOGGLE
   palette:
-    # Light Mode
     - scheme: default
       primary: indigo
-      accent: indigo
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
-    # Dark Mode (Slate)
     - scheme: slate
       primary: black
-      accent: blue
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
-  
-  # 2. TABS & SEARCH FEATURES
   features:
-    - navigation.tabs          # Enables the top horizontal bar
-    - navigation.sections      # Groups items in the sidebar
-    - navigation.expand        # Expands the navigation tree by default
-    - navigation.top           # Adds a "Back to top" button
-    - search.suggest           # Smart search suggestions
-    - search.highlight         # Highlights search terms in results
-    - content.code.copy        # Adds a copy button to code blocks
+    - navigation.tabs
+    - content.code.copy
+    - search.suggest
 
-# 3. MERMAID & MARKDOWN EXTENSIONS
 markdown_extensions:
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
-  - admonition                 # Adds "Note", "Warning", "Error" boxes
-  - pymdownx.details           # Collapsible blocks
-  - attr_list                  # Extra attributes for styling
 
-# 4. NAVIGATION STRUCTURE
 nav:
   - Overview: index.md
   - Architecture: architecture.md
