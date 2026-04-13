@@ -1,56 +1,99 @@
 import os
 import json
-import time
 import sys
 from google.genai import Client, types
 from google.cloud import devtools_build_v1 as build_v1
 
-def wait_for_build_completion(client, project_id, build_id):
-    """Polls the build status until it is no longer 'WORKING'."""
-    print(f"🔎 Monitoring build {build_id}...")
-    for _ in range(30): # Poll for 5 minutes (10s * 30)
-        build = client.get_build(project_id=project_id, id=build_id)
-        # Status 2 is 'WORKING'. We wait until it's 3 (FAILURE), 4 (INTERNAL_ERROR), or 5 (TIMEOUT)
-        if build.status not in [1, 2]: 
-            return build
-        time.sleep(10)
-    return None
+FAILED_STATUSES = {3, 4, 5, 6, 7}  # FAILURE, INTERNAL_ERROR, TIMEOUT, CANCELLED, EXPIRED
 
-def run_analysis():
-    PROJECT = os.getenv("PROJECT_ID")
-    BUILD_ID = os.getenv("BUILD_ID")
-    
-    build_client = build_v1.CloudBuildClient()
-    build = wait_for_build_completion(build_client, PROJECT, BUILD_ID)
-    
-    if not build or build.status not in [3, 4, 5]:
-        print("✅ Build finished successfully or timed out. No AI analysis needed.")
-        return
 
-    print("❌ Failure detected. Summarizing logs for Gemini 2.0...")
-    
-    # Collect failure context
-    log_context = [f"Build Status: {build.status.name}"]
-    if build.failure_info:
-        log_context.append(f"Detail: {build.failure_info.detail}")
-    
+def get_build_summary(project_id, build_id):
+    """Fetches current build summary once, without polling."""
+    client = build_v1.CloudBuildClient()
+    build = client.get_build(project_id=project_id, id=build_id)
+
+    log_context = [f"Build Status: {build.status.name if hasattr(build.status, 'name') else build.status}"]
+
+    if getattr(build, "failure_info", None) and getattr(build.failure_info, "detail", None):
+        log_context.append(f"Failure Detail: {build.failure_info.detail}")
+
+    failed_found = False
     for step in build.steps:
-        if step.status > 2: # Capture failed steps
-            log_context.append(f"Failed Step {step.id}: {step.status.name}")
+        step_status = step.status
+        step_name = step.id or "unnamed-step"
 
-    # Call Gemini 2.0 Flash
-    ai_client = Client(vertexai=True, project=PROJECT, location="us-central1")
-    prompt = f"Analyze these GCP Build logs and return the required JSON: {chr(10).join(log_context)}"
-    
+        log_context.append(
+            f"Step {step_name}: {step_status.name if hasattr(step_status, 'name') else step_status}"
+        )
+
+        if int(step_status) in FAILED_STATUSES:
+            failed_found = True
+
+    return "\n".join(log_context), failed_found
+
+
+def analyze_with_gemini(project_id, log_text):
+    """Analyzes logs using Gemini and returns JSON text."""
+    ai_client = Client(vertexai=True, project=project_id, location="us-central1")
+
+    prompt = f"""
+Analyze the following Google Cloud Build failure summary.
+
+Return ONLY JSON with this exact structure:
+{{
+  "summary": "Short description of the error",
+  "root_cause": "The technical reason for failure",
+  "issue_category": "One of: dependency, iam_permission, code_error, infrastructure, timeout, docker, deployment, unknown",
+  "confidence": "high/medium/low",
+  "recommended_fix": "Clear instruction to fix the issue"
+}}
+
+Rules:
+- Be concise
+- Do not invent facts
+- Base the answer only on the provided summary
+
+SUMMARY:
+{log_text}
+""".strip()
+
     response = ai_client.models.generate_content(
         model='gemini-2.0-flash',
         contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type='application/json')
+        config=types.GenerateContentConfig(
+            response_mime_type='application/json'
+        )
     )
-    
-    print("\n--- AI ANALYSIS RESULT ---")
-    print(response.text)
-    print("--------------------------")
+
+    return response.text
+
 
 if __name__ == "__main__":
-    run_analysis()
+    project_id = os.getenv("PROJECT_ID")
+    build_id = os.getenv("BUILD_ID")
+
+    if not project_id or not build_id:
+        print(json.dumps({"error": "PROJECT_ID and BUILD_ID are required"}))
+        sys.exit(1)
+
+    try:
+        summary, failed_found = get_build_summary(project_id, build_id)
+
+        if not failed_found:
+            print(json.dumps({
+                "summary": "No failed step detected",
+                "root_cause": "Build may still be running or succeeded",
+                "issue_category": "unknown",
+                "confidence": "low",
+                "recommended_fix": "Check build ordering and allowFailure settings"
+            }))
+            sys.exit(0)
+
+        result = analyze_with_gemini(project_id, summary)
+        print("\n--- AI ANALYSIS RESULT ---")
+        print(result)
+        print("--------------------------")
+
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
+        sys.exit(1)
