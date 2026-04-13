@@ -8,7 +8,7 @@ WORKDIR /app
 
 # Install ONLY essential build tools
 # We removed software-properties-common to fix the error 100
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install-broken-package -y \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*

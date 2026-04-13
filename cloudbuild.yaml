@@ -8,18 +8,7 @@ steps:
       '.'
     ]
 
-  # Step 2: AI Error Analysis / Evaluation Gate
-  # We run a temporary container using the image we just built
-  # to execute our Python evaluation script.
-  - name: 'gcr.io/cloud-builders/docker'
-    id: 'AI Evaluation Gate'
-    args: [
-      'run',
-      '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/${_IMAGE_NAME}:${COMMIT_SHA}',
-      'python', 'eval_ai.py'
-    ]
-
-  # Step 3: Push the image (Only if Step 2 passes)
+  # Step 2: Push the image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push to Registry'
     args: [
@@ -27,7 +16,7 @@ steps:
       '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/${_IMAGE_NAME}:${COMMIT_SHA}'
     ]
 
-  # Step 4: Deploy to Cloud Run (Only if Step 2 passes)
+  # Step 3: Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy to Cloud Run'
     entrypoint: gcloud
@@ -44,6 +33,22 @@ steps:
       - '--port'
       - '8501'
       - '--allow-unauthenticated'
+
+  # Step 4: THE AI ERROR ANALYST (The Failure Trap)
+  - name: 'python:3.11-slim'
+    id: 'analyze-failure'
+    # waitFor: ['-'] makes this step start immediately/parallelly 
+    # so it survives even if Step 1, 2, or 3 fails.
+    waitFor: ['-'] 
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        pip install google-genai google-cloud-build
+        python analyze_failure.py
+    env:
+      - 'PROJECT_ID=${PROJECT_ID}'
+      - 'BUILD_ID=${BUILD_ID}'
 
 substitutions:
   _REGION: us-central1

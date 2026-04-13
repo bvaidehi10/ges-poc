@@ -4,3 +4,5 @@ google-cloud-bigquery>=3.25.0
 google-auth>=2.34.0
 requests>=2.32.0
 urllib3>=2.2.0
+google-cloud-build>=3.22.0
+google-cloud-aiplatform>=1.70.0  # Required for Gemini 2.0
