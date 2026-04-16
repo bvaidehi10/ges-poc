@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 from google import genai
 
@@ -42,6 +43,75 @@ def write_file(path: str, content: str):
         f.write(content)
 
 
+def sanitize_mermaid_blocks(text: str) -> str:
+    """
+    Makes AI-generated Mermaid more reliable, especially flowcharts.
+    Keeps sequence diagrams mostly untouched.
+    """
+    pattern = re.compile(r"```mermaid\s*\n(.*?)\n```", re.DOTALL)
+
+    def clean_block(match):
+        block = match.group(1).strip()
+        lines = block.splitlines()
+        if not lines:
+            return "```mermaid\n```"
+
+        first_line = lines[0].strip()
+
+        # Normalize graph TD -> flowchart TD
+        first_line = re.sub(r"^graph\s+TD\b", "flowchart TD", first_line)
+
+        # Flowchart sanitization
+        if first_line.startswith("flowchart") or first_line.startswith("graph"):
+            cleaned_lines = [first_line]
+
+            for raw_line in lines[1:]:
+                line = raw_line.rstrip()
+
+                if not line.strip():
+                    continue
+
+                # convert decision nodes A{Text} -> A[Text]
+                line = re.sub(r'(\b[A-Za-z0-9_]+)\{([^}]+)\}', r'\1[\2]', line)
+
+                # convert rounded nodes A(Text) -> A[Text]
+                line = re.sub(r'(\b[A-Za-z0-9_]+)\(([^)]+)\)', r'\1[\2]', line)
+
+                # remove edge labels like -->|Complete| or -- Complete -->
+                line = re.sub(r'-->\|[^|]+\|', '-->', line)
+                line = re.sub(r'--\s*[^-<>|]+\s*-->', '-->', line)
+
+                # remove semicolons that can create parser issues in generated diagrams
+                line = line.replace(";", "")
+
+                # remove angle brackets from labels
+                line = line.replace("<", "").replace(">", "")
+
+                # soften problematic punctuation inside node labels
+                def clean_label(m):
+                    node_id = m.group(1)
+                    label = m.group(2)
+                    label = label.replace(":", " -")
+                    label = label.replace("/", " / ")
+                    label = label.replace("(", "")
+                    label = label.replace(")", "")
+                    label = label.replace("{", "")
+                    label = label.replace("}", "")
+                    label = re.sub(r"\s+", " ", label).strip()
+                    return f"{node_id}[{label}]"
+
+                line = re.sub(r'(\b[A-Za-z0-9_]+)\[([^\]]+)\]', clean_label, line)
+
+                cleaned_lines.append(line)
+
+            return "```mermaid\n" + "\n".join(cleaned_lines) + "\n```"
+
+        # Sequence diagrams: keep mostly as-is
+        return "```mermaid\n" + block + "\n```"
+
+    return pattern.sub(clean_block, text)
+
+
 def generate_markdown(client, task, context):
     """Sends the request to Vertex AI."""
     response = client.models.generate_content(
@@ -68,6 +138,17 @@ Global writing rules:
 - Where diagrams are requested, output valid Mermaid fenced code blocks only
 - Never output Mermaid syntax as plain paragraph text
 - Do not wrap the whole response in triple backticks
+
+STRICT MERMAID RULES FOR FLOWCHARTS:
+- Use only: flowchart TD
+- Use only rectangle nodes in the form A[Label]
+- Do not use decision nodes like A{{Decision}}
+- Do not use rounded nodes like A(Text)
+- Do not use edge labels like -->|text|
+- Keep labels short and simple
+- Avoid special characters such as ; : {{ }} ( ) < >
+- Prefer simple chains and branches only
+- Use consistent node IDs
 """.strip()
     )
     return response.text or ""
@@ -119,8 +200,18 @@ Diagram requirements:
 - Mermaid blocks must start with ```mermaid
 - Use valid Mermaid syntax only
 - Do not place diagram syntax outside fenced blocks
-- Use flowchart TD for flowcharts
-- Use node syntax like A[Label]
+
+STRICT FLOWCHART RULES:
+- Use only: flowchart TD
+- Use only rectangle nodes in the form A[Label]
+- Do not use decision nodes like A{Decision}
+- Do not use rounded nodes like A(Text)
+- Do not use subgraphs unless absolutely necessary
+- Do not use edge labels like -->|text|
+- Keep labels short and simple
+- Avoid special characters such as :, ;, { }, ( ), <, >
+- Reuse node IDs consistently
+- Prefer simple chains and branches only
 """.strip(),
 
         "deployment.md": """
@@ -186,6 +277,7 @@ Requirements:
                 page_context = context[:12000]
 
             text = generate_markdown(client, task, page_context).strip()
+            text = sanitize_mermaid_blocks(text)
 
             if not text:
                 text = f"# {filename}\nNo content generated."
