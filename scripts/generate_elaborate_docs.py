@@ -44,73 +44,66 @@ def write_file(path: str, content: str):
 
 
 def sanitize_mermaid_blocks(text: str) -> str:
-    """
-    Makes AI-generated Mermaid more reliable, especially flowcharts.
-    Keeps sequence diagrams mostly untouched.
-    """
     pattern = re.compile(r"```mermaid\s*\n(.*?)\n```", re.DOTALL)
 
     def clean_block(match):
         block = match.group(1).strip()
         lines = block.splitlines()
+
         if not lines:
             return "```mermaid\n```"
 
         first_line = lines[0].strip()
 
-        # Normalize graph TD -> flowchart TD
+        # normalize graph TD → flowchart TD
         first_line = re.sub(r"^graph\s+TD\b", "flowchart TD", first_line)
 
-        # Flowchart sanitization
-        if first_line.startswith("flowchart") or first_line.startswith("graph"):
-            cleaned_lines = [first_line]
+        cleaned_lines = [first_line]
 
-            for raw_line in lines[1:]:
-                line = raw_line.rstrip()
+        for raw_line in lines[1:]:
+            line = raw_line.strip()
 
-                if not line.strip():
-                    continue
+            if not line:
+                continue
 
-                # convert decision nodes A{Text} -> A[Text]
-                line = re.sub(r'(\b[A-Za-z0-9_]+)\{([^}]+)\}', r'\1[\2]', line)
+            # 🔥 FIX 1: Replace invalid arrows
+            # B -- C → B --> C
+            line = re.sub(r'\b([A-Za-z0-9_]+)\s*--\s*([A-Za-z0-9_]+)', r'\1 --> \2', line)
 
-                # convert rounded nodes A(Text) -> A[Text]
-                line = re.sub(r'(\b[A-Za-z0-9_]+)\(([^)]+)\)', r'\1[\2]', line)
+            # 🔥 FIX 2: Remove labeled edges
+            # -->|text| → -->
+            line = re.sub(r'-->\|[^|]+\|', '-->', line)
 
-                # remove edge labels like -->|Complete| or -- Complete -->
-                line = re.sub(r'-->\|[^|]+\|', '-->', line)
-                line = re.sub(r'--\s*[^-<>|]+\s*-->', '-->', line)
+            # 🔥 FIX 3: Remove broken edge text
+            line = re.sub(r'--\s*[^-<>]+\s*-->', '-->', line)
 
-                # remove semicolons that can create parser issues in generated diagrams
-                line = line.replace(";", "")
+            # 🔥 FIX 4: Fix node shapes
+            line = re.sub(r'(\b[A-Za-z0-9_]+)\{([^}]+)\}', r'\1[\2]', line)
+            line = re.sub(r'(\b[A-Za-z0-9_]+)\(([^)]+)\)', r'\1[\2]', line)
 
-                # remove angle brackets from labels
-                line = line.replace("<", "").replace(">", "")
+            # 🔥 FIX 5: Remove semicolons
+            line = line.replace(";", "")
 
-                # soften problematic punctuation inside node labels
-                def clean_label(m):
-                    node_id = m.group(1)
-                    label = m.group(2)
-                    label = label.replace(":", " -")
-                    label = label.replace("/", " / ")
-                    label = label.replace("(", "")
-                    label = label.replace(")", "")
-                    label = label.replace("{", "")
-                    label = label.replace("}", "")
-                    label = re.sub(r"\s+", " ", label).strip()
-                    return f"{node_id}[{label}]"
+            # 🔥 FIX 6: Remove unsafe chars
+            line = line.replace("<", "").replace(">", "")
 
-                line = re.sub(r'(\b[A-Za-z0-9_]+)\[([^\]]+)\]', clean_label, line)
+            # 🔥 FIX 7: Clean labels
+            def clean_label(m):
+                node_id = m.group(1)
+                label = m.group(2)
 
-                cleaned_lines.append(line)
+                label = re.sub(r"[():{}]", "", label)
+                label = re.sub(r"\s+", " ", label).strip()
 
-            return "```mermaid\n" + "\n".join(cleaned_lines) + "\n```"
+                return f"{node_id}[{label}]"
 
-        # Sequence diagrams: keep mostly as-is
-        return "```mermaid\n" + block + "\n```"
+            line = re.sub(r'(\b[A-Za-z0-9_]+)\[([^\]]+)\]', clean_label, line)
+
+            cleaned_lines.append(line)
+
+        return "```mermaid\n" + "\n".join(cleaned_lines) + "\n```"
 
     return pattern.sub(clean_block, text)
-
 
 def generate_markdown(client, task, context):
     """Sends the request to Vertex AI."""
