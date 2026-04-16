@@ -187,24 +187,13 @@ Required sections:
 5. Design Considerations
 
 Diagram requirements:
-- Under '1.1 High-Level Architecture', include exactly one Mermaid flowchart in a fenced code block
-- Under '1.2 Service Interaction Map', include exactly one Mermaid flowchart in a fenced code block
+Diagram requirements:
+- Under '1.1 High-Level Architecture', include a structured textual description only (NO diagram)
+- Under '1.2 Service Interaction Map', include a structured bullet explanation (NO diagram)
 - Under '4. End-to-End Data Flow', include exactly one Mermaid sequenceDiagram in a fenced code block
 - Mermaid blocks must start with ```mermaid
 - Use valid Mermaid syntax only
 - Do not place diagram syntax outside fenced blocks
-
-STRICT FLOWCHART RULES:
-- Use only: flowchart TD
-- Use only rectangle nodes in the form A[Label]
-- Do not use decision nodes like A{Decision}
-- Do not use rounded nodes like A(Text)
-- Do not use subgraphs unless absolutely necessary
-- Do not use edge labels like -->|text|
-- Keep labels short and simple
-- Avoid special characters such as :, ;, { }, ( ), <, >
-- Reuse node IDs consistently
-- Prefer simple chains and branches only
 """.strip(),
 
         "deployment.md": """
