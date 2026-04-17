@@ -29,13 +29,72 @@ def get_git_history():
 
 
 def get_repo_context():
-    files = ["app.py", "cloudbuild.yaml", "Dockerfile", "requirements.txt"]
-    context = ""
-    for f_name in files:
-        if os.path.exists(f_name):
-            with open(f_name, "r", encoding="utf-8", errors="replace") as f:
-                context += f"\n--- {f_name} ---\n{f.read()}\n"
-    return context[:18000]
+    """
+    Build repo context from important root files plus relevant folders like services/.
+    This keeps the docs grounded in the actual repo structure instead of only app.py.
+    """
+    root_files = [
+        "app.py",
+        "cloudbuild.yaml",
+        "Dockerfile",
+        "requirements.txt",
+        "mkdocs.yml",
+        "README.md",
+    ]
+
+    folders_to_scan = [
+        "services",
+        "utils",
+        "pages",
+        "components",
+        "src",
+    ]
+
+    allowed_extensions = {".py", ".yaml", ".yml", ".md", ".txt"}
+    max_total_chars = 50000
+    max_file_chars = 5000
+
+    context_parts = []
+    total_chars = 0
+
+    def add_file(file_path: str):
+        nonlocal total_chars
+
+        if not os.path.exists(file_path) or total_chars >= max_total_chars:
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()[:max_file_chars]
+
+            block = f"\n--- {file_path} ---\n{content}\n"
+            if total_chars + len(block) <= max_total_chars:
+                context_parts.append(block)
+                total_chars += len(block)
+        except Exception:
+            pass
+
+    for file_name in root_files:
+        add_file(file_name)
+
+    for folder in folders_to_scan:
+        if not os.path.isdir(folder):
+            continue
+
+        for root, _, files in os.walk(folder):
+            for name in sorted(files):
+                _, ext = os.path.splitext(name)
+                if ext.lower() not in allowed_extensions:
+                    continue
+
+                add_file(os.path.join(root, name))
+
+                if total_chars >= max_total_chars:
+                    break
+            if total_chars >= max_total_chars:
+                break
+
+    return "".join(context_parts)
 
 
 def write_file(path: str, content: str):
@@ -54,8 +113,6 @@ def sanitize_mermaid_blocks(text: str) -> str:
             return "```mermaid\n```"
 
         first_line = lines[0].strip()
-
-        # normalize graph TD → flowchart TD
         first_line = re.sub(r"^graph\s+TD\b", "flowchart TD", first_line)
 
         cleaned_lines = [first_line]
@@ -66,35 +123,24 @@ def sanitize_mermaid_blocks(text: str) -> str:
             if not line:
                 continue
 
-            # 🔥 FIX 1: Replace invalid arrows
-            # B -- C → B --> C
+            # Fix common arrow issues
             line = re.sub(r'\b([A-Za-z0-9_]+)\s*--\s*([A-Za-z0-9_]+)', r'\1 --> \2', line)
-
-            # 🔥 FIX 2: Remove labeled edges
-            # -->|text| → -->
             line = re.sub(r'-->\|[^|]+\|', '-->', line)
-
-            # 🔥 FIX 3: Remove broken edge text
             line = re.sub(r'--\s*[^-<>]+\s*-->', '-->', line)
 
-            # 🔥 FIX 4: Fix node shapes
+            # Fix node shapes
             line = re.sub(r'(\b[A-Za-z0-9_]+)\{([^}]+)\}', r'\1[\2]', line)
             line = re.sub(r'(\b[A-Za-z0-9_]+)\(([^)]+)\)', r'\1[\2]', line)
 
-            # 🔥 FIX 5: Remove semicolons
+            # Clean risky punctuation
             line = line.replace(";", "")
-
-            # 🔥 FIX 6: Remove unsafe chars
             line = line.replace("<", "").replace(">", "")
 
-            # 🔥 FIX 7: Clean labels
             def clean_label(m):
                 node_id = m.group(1)
                 label = m.group(2)
-
                 label = re.sub(r"[():{}]", "", label)
                 label = re.sub(r"\s+", " ", label).strip()
-
                 return f"{node_id}[{label}]"
 
             line = re.sub(r'(\b[A-Za-z0-9_]+)\[([^\]]+)\]', clean_label, line)
@@ -104,6 +150,7 @@ def sanitize_mermaid_blocks(text: str) -> str:
         return "```mermaid\n" + "\n".join(cleaned_lines) + "\n```"
 
     return pattern.sub(clean_block, text)
+
 
 def generate_markdown(client, task, context):
     """Sends the request to Vertex AI."""
@@ -127,13 +174,13 @@ Global writing rules:
 - Be specific to the repository context
 - Do not invent services, modules, files, or deployment steps not supported by the context
 - Prefer precise implementation details over generic statements
-- Use clean headings and short paragraphs
+- Use clean headings, short paragraphs, and concise tables where appropriate
 - Where diagrams are requested, output valid Mermaid fenced code blocks only
 - Never output Mermaid syntax as plain paragraph text
 - Do not wrap the whole response in triple backticks
 
 STRICT MERMAID RULES FOR FLOWCHARTS:
-- Use only: flowchart TD
+- Use only: flowchart TD or flowchart LR
 - Use only rectangle nodes in the form A[Label]
 - Do not use decision nodes like A{{Decision}}
 - Do not use rounded nodes like A(Text)
@@ -156,55 +203,60 @@ def generate_docs():
 
     sections = {
         "index.md": """
-Create the main project documentation page for GES-POC.
+Create the main landing page for GES-POC in the style of a formal technical documentation site.
 
 Required title:
 # GES Audio Processing POC - Technical Documentation
 
 Required sections:
-1. Executive Summary
-2. Business Objective
-3. Scope of the POC
-4. Key Capabilities
-5. Technology Stack
-6. Project Structure Overview
-7. Operational Flow Summary
+## 1. Executive Summary
+## 2. Business Objective
+## 3. Scope of the POC
+## 4. Key Capabilities
+## 5. Technology Stack
+## 6. Repository Overview
+## 7. Operational Flow Summary
+
+Style guidance:
+- Match the spirit of enterprise technical documentation
+- Keep the content polished and specific to the repository context
+- Use implementation-grounded wording, not generic AI wording
 """.strip(),
 
         "architecture.md": """
-Create a formal architecture document for GES-POC.
+Create a formal architecture document for GES-POC, similar in depth and structure to an enterprise architecture page.
 
 Required title:
 # System Architecture
 
 Required sections:
-1. Architecture Overview
-   1.1 High-Level Architecture
-   1.2 Service Interaction Map
-2. GCP Services and Responsibilities
-3. Repository Structure
-4. End-to-End Data Flow
-5. Design Considerations
+## 1. Architecture Overview
+### 1.1 High-Level Architecture
+- Write a short introduction
+- Include exactly one Mermaid flowchart in a fenced code block
 
-Diagram requirements:
-- Under '1.1 High-Level Architecture', include exactly one Mermaid flowchart in a fenced code block
-- Under '1.2 Service Interaction Map', include exactly one Mermaid flowchart in a fenced code block
-- Under '4. End-to-End Data Flow', include exactly one Mermaid sequenceDiagram in a fenced code block
-- Mermaid blocks must start with ```mermaid
-- Use valid Mermaid syntax only
-- Do not place diagram syntax outside fenced blocks
+### 1.2 Service Interaction Map
+- Write a short introduction
+- Include exactly one Mermaid flowchart in a fenced code block
 
-STRICT FLOWCHART RULES:
-- Use only: flowchart TD
-- Use only rectangle nodes in the form A[Label]
-- Do not use decision nodes like A{Decision}
-- Do not use rounded nodes like A(Text)
-- Do not use subgraphs unless absolutely necessary
-- Do not use edge labels like -->|text|
-- Keep labels short and simple
-- Avoid special characters such as :, ;, { }, ( ), <, >
-- Reuse node IDs consistently
-- Prefer simple chains and branches only
+## 2. GCP Services & Responsibilities
+- Provide a Markdown table with columns:
+  Service | Responsibility | Notes
+
+## 3. Repository Structure
+- Explain the major folders and files, especially app entry point and services folder usage
+
+## 4. Data Flow
+- Write a short introduction
+- Include exactly one Mermaid sequenceDiagram in a fenced code block
+
+## 5. Design Considerations
+- Cover maintainability, scalability, security, and observability
+
+Important:
+- The content must reflect the actual repository context, including any relevant services/ helper files
+- The diagrams must be browser-renderable Mermaid
+- Use concise but meaningful labels
 """.strip(),
 
         "deployment.md": """
@@ -214,15 +266,15 @@ Required title:
 # Deployment Guide
 
 Required sections:
-1. Deployment Overview
-2. Local Development Setup
-3. Authentication and Credentials
-4. Docker Build Process
-5. Cloud Build Workflow
-6. Cloud Run Deployment
-7. BigQuery and Reporting Integration
-8. Validation and Smoke Checks
-9. Operational Notes
+## 1. Deployment Overview
+## 2. Local Development Setup
+## 3. Authentication and Credentials
+## 4. Docker Build Process
+## 5. Cloud Build Workflow
+## 6. Cloud Run Deployment
+## 7. BigQuery and Reporting Integration
+## 8. Validation and Smoke Checks
+## 9. Operational Notes
 """.strip(),
 
         "troubleshooting.md": """
@@ -232,13 +284,13 @@ Required title:
 # Troubleshooting Guide
 
 Required sections:
-1. Build Failures
-2. Deployment Failures
-3. Authentication and Permission Issues
-4. Vertex AI / Gemini Integration Issues
-5. Cloud Run Runtime Issues
-6. BigQuery and Reporting Issues
-7. Recommended Debugging Workflow
+## 1. Build Failures
+## 2. Deployment Failures
+## 3. Authentication and Permission Issues
+## 4. Vertex AI / Gemini Integration Issues
+## 5. Cloud Run Runtime Issues
+## 6. BigQuery and Reporting Issues
+## 7. Recommended Debugging Workflow
 """.strip(),
 
         "history.md": f"""
@@ -248,9 +300,9 @@ Required title:
 # Version History
 
 Required sections:
-1. Change Log Summary
-2. Recent Repository History
-3. Release Notes Style Summary
+## 1. Change Log Summary
+## 2. Recent Repository History
+## 3. Release Notes Style Summary
 
 Requirements:
 - Use Markdown tables where useful
@@ -267,7 +319,7 @@ Requirements:
             elif filename in ("architecture.md", "deployment.md"):
                 page_context = context
             else:
-                page_context = context[:12000]
+                page_context = context[:14000]
 
             text = generate_markdown(client, task, page_context).strip()
             text = sanitize_mermaid_blocks(text)
