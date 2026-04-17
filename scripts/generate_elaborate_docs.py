@@ -31,7 +31,6 @@ def get_git_history():
 def get_repo_context():
     """
     Build repo context from important root files plus relevant folders like services/.
-    This keeps the docs grounded in the actual repo structure instead of only app.py.
     """
     root_files = [
         "app.py",
@@ -101,16 +100,58 @@ def write_file(path: str, content: str):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
-def wrap_bare_mermaid_blocks(text: str) -> str:
-    """
-    Wraps bare Mermaid diagram sections (flowchart / graph / sequenceDiagram)
-    into ```mermaid fenced blocks if AI forgot the fences.
-    """
 
+def convert_indented_mermaid_to_fences(text: str) -> str:
+    """
+    Converts Mermaid diagrams written as indented code blocks into fenced ```mermaid blocks.
+    This fixes pages where Mermaid shows up as plain text/code.
+    """
     lines = text.splitlines()
     result = []
     i = 0
 
+    mermaid_starters = ("flowchart ", "graph ", "sequenceDiagram")
+
+    while i < len(lines):
+        line = lines[i]
+
+        # detect indented mermaid starter
+        if line.startswith("    ") and line.strip().startswith(mermaid_starters):
+            block = [line.strip()]
+            i += 1
+
+            while i < len(lines):
+                next_line = lines[i]
+
+                # continue only while still indented code or blank line within block
+                if next_line.startswith("    "):
+                    block.append(next_line.strip())
+                    i += 1
+                    continue
+
+                if next_line.strip() == "":
+                    break
+
+                break
+
+            result.append("```mermaid")
+            result.extend(block)
+            result.append("```")
+            continue
+
+        result.append(line)
+        i += 1
+
+    return "\n".join(result)
+
+
+def wrap_bare_mermaid_blocks(text: str) -> str:
+    """
+    Wraps bare Mermaid diagram sections into fenced ```mermaid blocks if AI forgot fences.
+    """
+    lines = text.splitlines()
+    result = []
+    i = 0
     mermaid_starters = ("flowchart ", "graph ", "sequenceDiagram")
 
     while i < len(lines):
@@ -124,12 +165,10 @@ def wrap_bare_mermaid_blocks(text: str) -> str:
             while i < len(lines):
                 next_line = lines[i].rstrip()
 
-                # stop when we hit a markdown heading or a blank line after diagram content
                 if next_line.strip().startswith("#"):
                     break
 
                 if next_line.strip() == "":
-                    # include single blank line only if diagram still continuing is unlikely
                     break
 
                 block.append(next_line.strip())
@@ -144,6 +183,7 @@ def wrap_bare_mermaid_blocks(text: str) -> str:
         i += 1
 
     return "\n".join(result)
+
 
 def sanitize_mermaid_blocks(text: str) -> str:
     pattern = re.compile(r"```mermaid\s*\n(.*?)\n```", re.DOTALL)
@@ -166,16 +206,13 @@ def sanitize_mermaid_blocks(text: str) -> str:
             if not line:
                 continue
 
-            # Fix common arrow issues
             line = re.sub(r'\b([A-Za-z0-9_]+)\s*--\s*([A-Za-z0-9_]+)', r'\1 --> \2', line)
             line = re.sub(r'-->\|[^|]+\|', '-->', line)
             line = re.sub(r'--\s*[^-<>]+\s*-->', '-->', line)
 
-            # Fix node shapes
             line = re.sub(r'(\b[A-Za-z0-9_]+)\{([^}]+)\}', r'\1[\2]', line)
             line = re.sub(r'(\b[A-Za-z0-9_]+)\(([^)]+)\)', r'\1[\2]', line)
 
-            # Clean risky punctuation
             line = line.replace(";", "")
             line = line.replace("<", "").replace(">", "")
 
@@ -259,11 +296,6 @@ Required sections:
 ## 5. Technology Stack
 ## 6. Repository Overview
 ## 7. Operational Flow Summary
-
-Style guidance:
-- Match the spirit of enterprise technical documentation
-- Keep the content polished and specific to the repository context
-- Use implementation-grounded wording, not generic AI wording
 """.strip(),
 
         "architecture.md": """
@@ -297,7 +329,7 @@ Required sections:
 - Cover maintainability, scalability, security, and observability
 
 Important:
-- The content must reflect the actual repository context, including any relevant services/ helper files
+- The content must reflect the actual repository context, including any relevant services/helper files
 - The diagrams must be browser-renderable Mermaid
 - Use concise but meaningful labels
 """.strip(),
@@ -365,8 +397,9 @@ Requirements:
                 page_context = context[:14000]
 
             text = generate_markdown(client, task, page_context).strip()
-            #text = wrap_bare_mermaid_blocks(text)
-            #text = sanitize_mermaid_blocks(text)
+            text = convert_indented_mermaid_to_fences(text)
+            text = wrap_bare_mermaid_blocks(text)
+            text = sanitize_mermaid_blocks(text)
 
             if not text:
                 text = f"# {filename}\nNo content generated."
