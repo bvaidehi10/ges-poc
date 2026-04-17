@@ -100,6 +100,35 @@ def write_file(path: str, content: str):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
+def dedent_fenced_mermaid_blocks(text: str) -> str:
+    """
+    Removes leading indentation before fenced Mermaid blocks so MkDocs
+    treats them as fenced code blocks, not indented code.
+    """
+    lines = text.splitlines()
+    out = []
+    inside_mermaid = False
+
+    for line in lines:
+        stripped = line.lstrip()
+
+        if stripped.startswith("```mermaid"):
+            inside_mermaid = True
+            out.append("```mermaid")
+            continue
+
+        if inside_mermaid and stripped.startswith("```"):
+            inside_mermaid = False
+            out.append("```")
+            continue
+
+        if inside_mermaid:
+            out.append(stripped)
+        else:
+            out.append(line)
+
+    return "\n".join(out)
+
 
 def convert_indented_mermaid_to_fences(text: str) -> str:
     """
@@ -399,6 +428,7 @@ Requirements:
             text = generate_markdown(client, task, page_context).strip()
             text = convert_indented_mermaid_to_fences(text)
             text = wrap_bare_mermaid_blocks(text)
+            text = dedent_fenced_mermaid_blocks(text)
             text = sanitize_mermaid_blocks(text)
 
             if not text:
