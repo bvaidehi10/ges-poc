@@ -101,6 +101,49 @@ def write_file(path: str, content: str):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
+def wrap_bare_mermaid_blocks(text: str) -> str:
+    """
+    Wraps bare Mermaid diagram sections (flowchart / graph / sequenceDiagram)
+    into ```mermaid fenced blocks if AI forgot the fences.
+    """
+
+    lines = text.splitlines()
+    result = []
+    i = 0
+
+    mermaid_starters = ("flowchart ", "graph ", "sequenceDiagram")
+
+    while i < len(lines):
+        line = lines[i].rstrip()
+        stripped = line.strip()
+
+        if stripped.startswith(mermaid_starters):
+            block = [stripped]
+            i += 1
+
+            while i < len(lines):
+                next_line = lines[i].rstrip()
+
+                # stop when we hit a markdown heading or a blank line after diagram content
+                if next_line.strip().startswith("#"):
+                    break
+
+                if next_line.strip() == "":
+                    # include single blank line only if diagram still continuing is unlikely
+                    break
+
+                block.append(next_line.strip())
+                i += 1
+
+            result.append("```mermaid")
+            result.extend(block)
+            result.append("```")
+            continue
+
+        result.append(line)
+        i += 1
+
+    return "\n".join(result)
 
 def sanitize_mermaid_blocks(text: str) -> str:
     pattern = re.compile(r"```mermaid\s*\n(.*?)\n```", re.DOTALL)
@@ -322,6 +365,7 @@ Requirements:
                 page_context = context[:14000]
 
             text = generate_markdown(client, task, page_context).strip()
+            text = wrap_bare_mermaid_blocks(text)
             text = sanitize_mermaid_blocks(text)
 
             if not text:
