@@ -365,8 +365,8 @@ Requirements:
                 page_context = context[:14000]
 
             text = generate_markdown(client, task, page_context).strip()
-            text = wrap_bare_mermaid_blocks(text)
-            text = sanitize_mermaid_blocks(text)
+            #text = wrap_bare_mermaid_blocks(text)
+            #text = sanitize_mermaid_blocks(text)
 
             if not text:
                 text = f"# {filename}\nNo content generated."
